@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -8,6 +8,11 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
+ */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2016 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
  */
 
 #include <linux/bitops.h>
@@ -53,7 +58,7 @@ int __ipa_generate_rt_hw_rule_v2(enum ipa_ip_type ip,
 	int pipe_idx;
 
 	if (buf == NULL) {
-		memset(tmp, 0, (IPA_RT_FLT_HW_RULE_BUF_SIZE/4));
+		memset(tmp, 0, IPA_RT_FLT_HW_RULE_BUF_SIZE);
 		buf = (u8 *)tmp;
 	}
 
@@ -75,15 +80,8 @@ int __ipa_generate_rt_hw_rule_v2(enum ipa_ip_type ip,
 	rule_hdr->u.hdr.pipe_dest_idx = pipe_idx;
 	rule_hdr->u.hdr.system = !ipa_ctx->hdr_tbl_lcl;
 	if (entry->hdr) {
-		if (entry->hdr->cookie == IPA_HDR_COOKIE) {
-			rule_hdr->u.hdr.hdr_offset =
-				entry->hdr->offset_entry->offset >> 2;
-		} else {
-			IPAERR("Entry hdr deleted by user = %d cookie = %u\n",
-				 entry->hdr->user_deleted, entry->hdr->cookie);
-			WARN_ON(1);
-			rule_hdr->u.hdr.hdr_offset = 0;
-		}
+		rule_hdr->u.hdr.hdr_offset =
+			entry->hdr->offset_entry->offset >> 2;
 	} else {
 		rule_hdr->u.hdr.hdr_offset = 0;
 	}
@@ -684,7 +682,9 @@ static int ipa_generate_rt_hw_tbl_v2(enum ipa_ip_type ip,
 	return 0;
 
 proc_err:
-	dma_free_coherent(ipa_ctx->pdev, mem->size, mem->base, mem->phys_base);
+	if (mem->size > 0)
+		dma_free_coherent(ipa_ctx->pdev, mem->size, mem->base,
+				mem->phys_base);
 base_err:
 	dma_free_coherent(ipa_ctx->pdev, head->size, head->base,
 			head->phys_base);
@@ -695,8 +695,8 @@ err:
 int __ipa_commit_rt_v2(enum ipa_ip_type ip)
 {
 	struct ipa_desc desc[2];
-	struct ipa_mem_buffer body;
-	struct ipa_mem_buffer head;
+	struct ipa_mem_buffer body = {0};
+	struct ipa_mem_buffer head = {0};
 	struct ipa_hw_imm_cmd_dma_shared_mem *cmd1 = NULL;
 	struct ipa_hw_imm_cmd_dma_shared_mem *cmd2 = NULL;
 	u16 avail;
@@ -1366,6 +1366,10 @@ int ipa_get_rt_tbl(struct ipa_ioc_get_rt_tbl *lookup)
 	mutex_lock(&ipa_ctx->lock);
 	entry = __ipa_find_rt_tbl(lookup->ip, lookup->name);
 	if (entry && entry->cookie == IPA_RT_TBL_COOKIE) {
+		if (entry->ref_cnt == ((u32)~0U)) {
+			IPAERR("fail: ref count crossed limit\n");
+			goto ret;
+		}
 		entry->ref_cnt++;
 		lookup->hdl = entry->id;
 
@@ -1375,6 +1379,8 @@ int ipa_get_rt_tbl(struct ipa_ioc_get_rt_tbl *lookup)
 
 		result = 0;
 	}
+
+ret:
 	mutex_unlock(&ipa_ctx->lock);
 
 	return result;
